@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SepphixDidTs - Reaction Game</title>
+    <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <style>
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: auto;
+            background-color: var(--bs-dark);
+            border-radius: 8px;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        .leaderboard-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+        }
+
+        .score-value {
+            font-weight: bold;
+            color: var(--bs-info);
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h1 class="card-title">SepphixDidTs</h1>
+                        <div class="game-container">
+                            <canvas id="gameCanvas" width="600" height="400"></canvas>
+                            <div id="overlay" class="text-center">
+                                <p id="gameOverMessage" class="mb-3 text-info"></p>
+                                <div class="mb-3">
+                                    <input type="text" id="playerName" class="form-control" placeholder="Enter your name">
+                                </div>
+                                <button id="startButton" class="btn btn-primary">Start Game</button>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <h3>Score: <span id="score">0</span></h3>
+                            <h4>Time Left: <span id="timer">30</span>s</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <h2>How to Play</h2>
+                        <ul>
+                            <li>Click on the targets as quickly as possible</li>
+                            <li>Score is based on your reaction time</li>
+                            <li>Faster clicks = More points</li>
+                            <li>You have 30 seconds to get the highest score</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h2 class="card-title mb-0">Global Leaderboard</h2>
+                        <button id="refreshLeaderboard" class="btn btn-sm btn-secondary">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="leaderboard" class="list-group">
+                            <!-- Leaderboard entries will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.score = 0;
+                this.timeLeft = 30;
+                this.gameRunning = false;
+                this.target = null;
+                this.targetRadius = 20;
+                this.lastSpawnTime = 0;
+
+                // Load saved player name
+                this.playerName = localStorage.getItem('playerName') || '';
+                if (this.playerName) {
+                    document.getElementById('playerName').value = this.playerName;
+                    document.getElementById('playerName').style.display = 'none';
+                }
+
+                // Bind event listeners
+                this.canvas.addEventListener('click', this.handleClick.bind(this));
+
+                // Setup responsive canvas
+                this.resizeCanvas();
+                window.addEventListener('resize', this.resizeCanvas.bind(this));
+
+                // Load initial leaderboard
+                this.updateLeaderboard();
+            }
+
+            resizeCanvas() {
+                const container = this.canvas.parentElement;
+                const ratio = this.canvas.width / this.canvas.height;
+                this.canvas.style.width = '100%';
+                this.canvas.style.height = `${container.offsetWidth / ratio}px`;
+            }
+
+            start() {
+                this.score = 0;
+                this.timeLeft = 30;
+                this.gameRunning = true;
+                this.updateScore();
+                this.spawnTarget();
+                this.gameLoop();
+                this.startTimer();
+            }
+
+            spawnTarget() {
+                const padding = this.targetRadius * 2;
+                const x = padding + Math.random() * (this.canvas.width - padding * 2);
+                const y = padding + Math.random() * (this.canvas.height - padding * 2);
+
+                this.target = {
+                    x,
+                    y,
+                    spawnTime: Date.now()
+                };
+            }
+
+            handleClick(event) {
+                if (!this.gameRunning || !this.target) return;
+
+                const rect = this.canvas.getBoundingClientRect();
+                const scaleX = this.canvas.width / rect.width;
+                const scaleY = this.canvas.height / rect.height;
+
+                const clickX = (event.clientX - rect.left) * scaleX;
+                const clickY = (event.clientY - rect.top) * scaleY;
+
+                const distance = Math.sqrt(
+                    Math.pow(clickX - this.target.x, 2) + 
+                    Math.pow(clickY - this.target.y, 2)
+                );
+
+                if (distance <= this.targetRadius) {
+                    const reactionTime = Date.now() - this.target.spawnTime;
+                    const points = Math.max(1, Math.floor(1000 / reactionTime * 10));
+                    this.score += points;
+                    this.updateScore();
+                    this.spawnTarget();
+                }
+            }
+
+            gameLoop() {
+                if (!this.gameRunning) return;
+
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                if (this.target) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(this.target.x, this.target.y, this.targetRadius, 0, Math.PI * 2);
+                    this.ctx.fillStyle = '#ff4444';
+                    this.ctx.fill();
+                }
+
+                requestAnimationFrame(() => this.gameLoop());
+            }
+
+            startTimer() {
+                const timerElement = document.getElementById('timer');
+                const timer = setInterval(() => {
+                    this.timeLeft--;
+                    timerElement.textContent = this.timeLeft;
+
+                    if (this.timeLeft <= 0) {
+                        clearInterval(timer);
+                        this.endGame();
+                    }
+                }, 1000);
+            }
+
+            updateScore() {
+                document.getElementById('score').textContent = this.score;
+            }
+
+            endGame() {
+                this.gameRunning = false;
+
+                // Get player name from input or storage
+                const nameInput = document.getElementById('playerName');
+                if (!this.playerName) {
+                    this.playerName = nameInput.value || 'Anonymous';
+                    localStorage.setItem('playerName', this.playerName);
+                    nameInput.style.display = 'none';
+                }
+
+                // Submit score to server for global leaderboard
+                fetch('/submit_score', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: this.playerName,
+                        score: this.score
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    this.updateLeaderboard(data);
+                    // Show game over message
+                    const overlay = document.getElementById('overlay');
+                    overlay.style.display = 'block';
+                    document.getElementById('gameOverMessage').textContent = `Game Over! Your score: ${this.score}`;
+                })
+                .catch(error => {
+                    console.error('Error submitting score:', error);
+                    // Show game over message even if there's an error
+                    const overlay = document.getElementById('overlay');
+                    overlay.style.display = 'block';
+                    document.getElementById('gameOverMessage').textContent = `Game Over! Your score: ${this.score}`;
+                });
+            }
+
+            updateLeaderboard(leaderboardData) {
+                if (!leaderboardData) {
+                    // If no data provided, fetch it from server
+                    fetch('/get_leaderboard')
+                        .then(response => response.json())
+                        .then(data => this.renderLeaderboard(data))
+                        .catch(error => {
+                            console.error('Error fetching leaderboard:', error);
+                        });
+                } else {
+                    this.renderLeaderboard(leaderboardData);
+                }
+            }
+
+            renderLeaderboard(leaderboardData) {
+                const leaderboardElement = document.getElementById('leaderboard');
+                leaderboardElement.innerHTML = leaderboardData
+                    .map((entry, index) => `
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="badge bg-secondary me-2">${index + 1}</span>
+                                <span>${entry.name}</span>
+                                <small class="text-muted ms-2">${entry.timestamp}</small>
+                            </div>
+                            <span class="badge bg-primary rounded-pill">${entry.score}</span>
+                        </div>
+                    `)
+                    .join('');
+            }
+        }
+
+        // Initialize game when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const game = new Game();
+
+            // Set up start button
+            document.getElementById('startButton').addEventListener('click', () => {
+                document.getElementById('overlay').style.display = 'none';
+                document.getElementById('gameOverMessage').textContent = '';
+                game.start();
+            });
+
+            // Set up refresh button
+            document.getElementById('refreshLeaderboard').addEventListener('click', () => {
+                game.updateLeaderboard();
+            });
+        });
+    </script>
+</body>
+</html>
